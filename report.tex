@@ -17,6 +17,8 @@
 \usepackage{enumitem}
 \usepackage[most]{tcolorbox}
 \usepackage{microtype}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning}
 
 % ---------- Colors ----------
 \definecolor{primarycolor}{RGB}{31, 78, 121}
@@ -143,8 +145,33 @@ Let $\mathcal{L} = \{(\text{id}_i, x_i, y_i, c_i)\}_{i=1}^N$ be the dataset ($N 
 \end{align}
 where $v_q$ is the grid node nearest to $(x_q,y_q)$ and $d_G(u,v)$ is the shortest-path distance in $G$.
 
-\section{System Architecture \& SSH Deployment}
+\section{System Architecture \& Flowchart}
 The solution is a modular FastAPI application deployed on the SSH lab server \texttt{10.1.75.53} and served on port \texttt{5213}.
+
+\begin{figure}[!htb]
+\centering
+\begin{tikzpicture}[
+    node distance=0.8cm and 1.2cm,
+    block/.style={rectangle, draw=primarycolor, fill=boxbg, rounded corners=3pt, align=center, font=\scriptsize, minimum height=0.9cm, inner sep=4pt},
+    io/.style={rectangle, draw=secondarycolor, fill=white, rounded corners=3pt, align=center, font=\scriptsize, minimum height=0.9cm, inner sep=4pt},
+    arrow/.style={-Stealth, thick, draw=primarycolor}
+]
+    % Nodes
+    \node (client) [io] {\textbf{Client Request}\\ \texttt{GET /search/?lat=...&long=...&cat=...&rad=...}};
+    \node (fastapi) [block, right=of client] {\textbf{FastAPI Layer (\texttt{main.py})}\\ Parameter Validation (\texttt{lat, long, cat, rad, link})};
+    \node (prune) [block, right=of fastapi] {\textbf{Stage 1: Spatial \& Category Filter}\\ \texttt{cKDTree.query\_ball\_point} ($O(\log N + k)$)\\ Category Index Lookup};
+    \node (routing) [block, below=0.7cm of prune] {\textbf{Stage 2: Graph Dijkstra Routing}\\ SciPy CSR Matrix Shortest Path\\ Compound Sort $(d_G, d_{\text{Euc}}, \text{ID})$};
+    \node (response) [io, left=of routing] {\textbf{JSON Response Output}\\ \texttt{\{"results": [id1, id2, \dots, id10]\}}};
+
+    % Arrows
+    \draw [arrow] (client) -- (fastapi);
+    \draw [arrow] (fastapi) -- (prune);
+    \draw [arrow] (prune) -- (routing);
+    \draw [arrow] (routing) -- (response);
+\end{tikzpicture}
+\caption{End-to-End System Architecture Flowchart of the Proximity Search API.}
+\label{fig:architecture_flowchart}
+\end{figure}
 
 \begin{figure}[!htb]
     \centering
@@ -266,4 +293,9 @@ The API answers each query in about 1.14~ms, returns deterministic rankings, app
     \item \textbf{OpenAPI Docs:} \url{http://10.1.75.53:5213/docs}
     \item \textbf{SSH Server:} \texttt{ssh students@10.1.75.53} \quad (Port \texttt{5213})
     \item \textbf{GitHub:} \url{https://github.com/sunilkumar2170/Assignment7-Proximity-Search-API}
+\end{itemize}
+
+\section*{AI Disclosure}
+AI coding tools (Google Antigravity/Gemini) were used only as pair-programming aids for LaTeX report formatting and code modularization.
+
 \end{document}
