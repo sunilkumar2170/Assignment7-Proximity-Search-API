@@ -149,50 +149,10 @@ where $v_q$ is the grid node nearest to $(x_q,y_q)$ and $d_G(u,v)$ is the shorte
 The solution is a modular FastAPI application deployed on the SSH lab server \texttt{10.1.75.53} and served on port \texttt{5213}.
 
 \begin{figure}[!htb]
-\centering
-\begin{tikzpicture}[
-    node distance=0.5cm and 0.6cm,
-    block/.style={rectangle, draw=primarycolor, fill=boxbg, rounded corners=3pt, align=left, font=\tiny, inner sep=4pt},
-    io/.style={rectangle, draw=secondarycolor, fill=white, rounded corners=3pt, align=left, font=\tiny, inner sep=4pt},
-    data/.style={rectangle, draw=codegreen!80!black, fill=codegreen!5, rounded corners=3pt, align=left, font=\tiny, inner sep=4pt},
-    arrow/.style={-Stealth, thick, draw=primarycolor}
-]
-    % Line 1: Input & Data Loading & Indexing
-    \node (input) [io] {\textbf{1. Query Input Parameters}\\
-    $\bullet$ \texttt{lat}: float (Latitude)\\
-    $\bullet$ \texttt{long}: float (Longitude)\\
-    $\bullet$ \texttt{cat}: str (Target Category)\\
-    $\bullet$ \texttt{rad}: float (Search Radius $R$)\\
-    $\bullet$ \texttt{link}: str/file (Optional Links)};
-
-    \node (loader) [data, right=of input] {\textbf{2. Data Loading (Startup)}\\
-    $\bullet$ \texttt{locations.csv}: ID, Lat, Lon, Cat\\
-    $\bullet$ \texttt{link.txt}: Node ID-pairs (\texttt{a b})\\
-    \quad or Coordinate 4-tuples};
-
-    \node (indexing) [block, right=of loader] {\textbf{3. Indexing Data Structures}\\
-    $\bullet$ \texttt{LocationStore.category\_map}: $O(1)$ dict\\
-    $\bullet$ \texttt{cKDTree}: 2D Spatial Tree over $[0,1]^2$\\
-    $\bullet$ \texttt{scipy.sparse.csr\_matrix}: Adjacency Matrix};
-
-    % Line 2: Search Engine Pipeline & JSON Output
-    \node (search) [block, below=0.7cm of indexing] {\textbf{4. Search Engine Execution Pipeline}\\
-    $\bullet$ \textbf{Stage 1}: Spatial Radius Query (\texttt{cKDTree.query\_ball\_point}) $\cap$ Category Lookup\\
-    $\bullet$ \textbf{Stage 2}: Network Dijkstra Shortest Path Traversal on CSR Matrix from Query Node\\
-    $\bullet$ \textbf{Ranking}: Compound Sort by $(d_{\text{Graph}},\, d_{\text{Euclidean}},\, \text{ID})$};
-
-    \node (output) [io, left=1.0cm of search] {\textbf{5. Output JSON Response}\\
-    \texttt{\{"results": [4850, 4948, 4947, 4648, 5348,}\\
-    \texttt{\phantom{\{"results": [}4451, 4753, 5347, 4654, 5349]\}}};
-
-    % Arrows
-    \draw [arrow] (input) -- (loader);
-    \draw [arrow] (loader) -- (indexing);
-    \draw [arrow] (indexing) -- (search);
-    \draw [arrow] (search) -- (output);
-\end{tikzpicture}
-\caption{Detailed End-to-End Architecture Flowchart illustrating Query Inputs, Data Loading, Indexing Data Structures, Two-Stage Search Engine Pipeline, and JSON Output.}
-\label{fig:architecture_flowchart}
+    \centering
+    \includegraphics[width=\linewidth]{workflow.png}
+    \caption{Proximity Search API -- Complete End-to-End Architectural Workflow detailing Inputs, Data Loading, Indexing Data Structures, Execution Pipeline, and Output JSON Response.}
+    \label{fig:workflow}
 \end{figure}
 
 \begin{figure}[!htb]
