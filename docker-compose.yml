@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  proximity-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: proximity_search_api
+    restart: unless-stopped
+    ports:
+      - "5213:5213"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PORT=5213
+      - HOST=0.0.0.0
+    volumes:
+      - ./data:/app/data:ro
+      - ./link.txt:/app/link.txt:ro
+    networks:
+      - proximity-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5213/docs')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  proximity-test-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: proximity_test_client
+    environment:
+      - API_URL=http://proximity-api:5213/search/
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./data:/app/data:ro
+      - ./link.txt:/app/link.txt:ro
+    networks:
+      - proximity-net
+    depends_on:
+      proximity-api:
+        condition: service_healthy
+
+networks:
+  proximity-net:
+    driver: bridge
+    name: proximity_network

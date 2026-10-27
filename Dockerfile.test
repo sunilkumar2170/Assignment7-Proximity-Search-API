@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    API_URL=http://proximity-api:5213/search/
+
+WORKDIR /app
+
+# Copy dependency definition and install
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy test script and dataset
+COPY test_api.py ./
+COPY data/ ./data/
+COPY link.txt ./link.txt
+
+# Execute validation queries against proximity-api container
+CMD ["python", "test_api.py", "--csv", "data/locations.csv", "--link", "link.txt", "--n", "20"]

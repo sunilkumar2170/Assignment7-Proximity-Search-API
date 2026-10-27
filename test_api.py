@@ -1,15 +1,15 @@
-import argparse, json, random, urllib.parse, urllib.request
+import os, argparse, json, random, urllib.parse, urllib.request
 import numpy as np, pandas as pd
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
 
-BASE = "http://10.1.75.53:5213/search/"
+DEFAULT_BASE = os.getenv("API_URL", "http://localhost:5213/search/")
 WEIGHT = "euclid"   # or "hop"
 
 
-def call_api(lat, lon, cat, rad, link):
+def call_api(base_url, lat, lon, cat, rad, link):
     q = urllib.parse.urlencode({"lat": lat, "long": lon, "cat": cat, "rad": rad, "link": link})
-    with urllib.request.urlopen(f"{BASE}?{q}", timeout=10) as r:
+    with urllib.request.urlopen(f"{base_url}?{q}", timeout=10) as r:
         return json.loads(r.read())["results"]
 
 
@@ -17,6 +17,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", required=True)
     ap.add_argument("--link", required=True)
+    ap.add_argument("--url", default=DEFAULT_BASE, help="API URL (e.g. http://proximity-api:5213/search/)")
     ap.add_argument("--n", type=int, default=30)
     a = ap.parse_args()
 
@@ -61,7 +62,7 @@ def main():
         order = sorted(valid, key=lambda i: (dist[i], d_euc[i], ids[i]))
         expected = [int(ids[i]) for i in order[:10]]
 
-        got = call_api(lat, lon, cat, rad, a.link)
+        got = call_api(a.url, lat, lon, cat, rad, a.link)
         ok = (len(got) == 10 and len(set(got)) == 10
               and all(g in set(int(ids[i]) for i in valid) for g in got))
         match = sum(g == e for g, e in zip(got, expected))
