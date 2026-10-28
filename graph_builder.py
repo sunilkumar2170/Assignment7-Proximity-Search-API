@@ -2,7 +2,7 @@ import os
 import numpy as np
 from scipy.sparse import coo_matrix
 
-COORD_ORDER = "lon_lat"
+COORD_ORDER = "lat_lon"
 
 
 def build_graph_from_lines(lines, store, coord_order=COORD_ORDER):
@@ -42,8 +42,8 @@ def build_graph_from_lines(lines, store, coord_order=COORD_ORDER):
             except ValueError:
                 continue
 
-            i = id_a - 1 if 0 <= id_a - 1 < n else None
-            j = id_b - 1 if 0 <= id_b - 1 < n else None
+            i = store.id_to_node.get(id_a) if hasattr(store, "id_to_node") else (id_a - 1 if 0 <= id_a - 1 < n else None)
+            j = store.id_to_node.get(id_b) if hasattr(store, "id_to_node") else (id_b - 1 if 0 <= id_b - 1 < n else None)
 
             if i is not None and j is not None:
                 d = np.sqrt((store.lats[i] - store.lats[j]) ** 2 + (store.lons[i] - store.lons[j]) ** 2)

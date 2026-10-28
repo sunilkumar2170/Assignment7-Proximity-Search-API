@@ -58,19 +58,30 @@ class SearchEngine:
                     resp = requests.get(url, timeout=10)
                     if resp.status_code == 200:
                         lines = resp.text.splitlines()
-                elif os.path.exists(s):
-                    with open(s, "r", encoding="utf-8") as f:
-                        lines = f.readlines()
                 else:
-                    lines = s.splitlines()
+                    base_dir = os.path.dirname(os.path.abspath(__file__))
+                    target_path = None
+                    if os.path.exists(s):
+                        target_path = s
+                    elif os.path.exists(os.path.join(base_dir, s)):
+                        target_path = os.path.join(base_dir, s)
+                    elif os.path.exists(os.path.join(base_dir, "data", s)):
+                        target_path = os.path.join(base_dir, "data", s)
+
+                    if target_path and os.path.isfile(target_path):
+                        with open(target_path, "r", encoding="utf-8") as f:
+                            lines = f.readlines()
+                    elif "\n" in s or len(s.split()) >= 2:
+                        lines = s.splitlines()
             elif isinstance(link_input, bytes):
                 lines = link_input.decode("utf-8", errors="ignore").splitlines()
 
             if lines:
                 graph = build_graph_from_lines(lines, self.store, coord_order=COORD_ORDER)
-                if cache_key:
-                    self.graph_cache[cache_key] = graph
-                return graph
+                if graph.nnz > 0:
+                    if cache_key:
+                        self.graph_cache[cache_key] = graph
+                    return graph
         except Exception:
             pass
 
@@ -80,7 +91,7 @@ class SearchEngine:
         graph = self.get_graph(link)
 
         start_node = self.tree.query([lat, lon])[1]
-        distances = dijkstra(graph, indices=start_node)
+        distances = dijkstra(graph, directed=False, indices=start_node)
 
         candidate_idx = self.store.category_map.get(category)
         if candidate_idx is None or len(candidate_idx) == 0:

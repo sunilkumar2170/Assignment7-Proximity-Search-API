@@ -235,7 +235,7 @@ curl -X GET "http://localhost:5213/search/?lat=0.5&long=0.5&cat=bank&rad=0.3"
 \end{lstlisting}
 The API responded with the expected JSON payload within 1.2\,ms:
 \begin{lstlisting}[language=json]
-{"results": [4850, 4948, 4947, 4648, 4753, 5349, 5348, 4451, 4654, 5347]}
+{"results": [4850, 4948, 4947, 4648, 5348, 4451, 4753, 4654, 5347, 5349]}
 \end{lstlisting}
 
 \begin{figure}[!htb]
@@ -279,6 +279,11 @@ docker compose down
 \begin{tcolorbox}[colback=white, colframe=primarycolor!80, boxrule=0.7pt, title={\bfseries 3. Multi-Container Startup Race Condition}, fonttitle=\small]
 \textbf{Issue}: When running \texttt{docker compose up}, the \texttt{proximity-test-client} started immediately and tried to connect to \texttt{http://proximity-api:5213/search/}, crashing with \texttt{URLError} because the API was still building its spatial tree and CSR matrix.\\
 \textbf{Resolution}: We implemented an active Docker \texttt{healthcheck} on \texttt{proximity-api} using Python's standard \texttt{urllib.request}. In \texttt{docker-compose.yml}, the test client was configured with \texttt{depends\_on: \{ proximity-api: \{ condition: service\_healthy \} \}}, eliminating the race condition.
+\end{tcolorbox}
+
+\begin{tcolorbox}[colback=white, colframe=primarycolor!80, boxrule=0.7pt, title={\bfseries 4. Coordinate Axis Alignment in Graph Edge Ingestion}, fonttitle=\small]
+\textbf{Issue}: In \texttt{link.txt}, coordinate lines were initially interpreted as \texttt{lon\_lat} instead of \texttt{lat\_lon}. Because both axes span $[0, 1]$, edges matched grid points, but the resulting graph was transposed along the diagonal, causing differences between calculated Dijkstra shortest paths and test ground truth.\\
+\textbf{Resolution}: Standardized \texttt{COORD\_ORDER = "lat\_lon"} across \texttt{graph\_builder.py} and \texttt{data\_loader.py}, and ensured \texttt{test\_api.py} returns a non-zero exit code on discrepancies. The test suite achieved 100\% agreement (\texttt{Exact match: 20, Differences: 0}).
 \end{tcolorbox}
 
 % =========================================================

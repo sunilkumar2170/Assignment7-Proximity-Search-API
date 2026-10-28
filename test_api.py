@@ -76,6 +76,8 @@ def main():
             print("   got     :", got)
             print("   expected:", expected)
     print(f"\nExact match: {passed}, Differences: {failed}")
+    if failed > 0:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

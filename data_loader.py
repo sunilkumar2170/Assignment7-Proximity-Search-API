@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 
 # Column ordering constant for link parsing: "lat_lon" or "lon_lat"
-COORD_ORDER = "lon_lat"
+COORD_ORDER = "lat_lon"
 
 class LocationStore:
     def __init__(self, csv_path=None):
@@ -19,10 +19,13 @@ class LocationStore:
         self.lons = df["Longitude"].to_numpy(dtype=np.float64)
         self.categories = df["Category"].to_numpy()
 
-        # Build coordinate lookup dictionary
+        # Build coordinate and ID lookup dictionaries
         self.coord_to_node = {
             (round(lat, 6), round(lon, 6)): i
             for i, (lat, lon) in enumerate(zip(self.lats, self.lons))
+        }
+        self.id_to_node = {
+            id_val: i for i, id_val in enumerate(self.ids)
         }
 
         # Precompute category mapping
