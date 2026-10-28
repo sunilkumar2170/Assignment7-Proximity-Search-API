@@ -17,6 +17,8 @@
 \usepackage{enumitem}
 \usepackage[most]{tcolorbox}
 \usepackage{microtype}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds, calc}
 
 % ---------- Colors ----------
 \definecolor{primarycolor}{RGB}{31, 78, 121}
@@ -111,6 +113,89 @@ The architecture comprises two decoupled container services connected over an is
     \item \textbf{\texttt{proximity-test-client} (Automated Verification Service)}: An automated client container that awaits the healthy startup of the API service and runs test queries to verify system correctness.
 \end{enumerate}
 
+\begin{figure}[!htb]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+    >=Stealth,
+    node distance=1.5cm,
+    font=\small,
+    box/.style={rectangle, draw=primarycolor, fill=white, rounded corners=3pt, thick, align=center, inner sep=6pt},
+    header/.style={rectangle, draw=primarycolor, fill=primarycolor!15, rounded corners=3pt, font=\small\bfseries\color{primarycolor}, align=center, inner sep=4pt},
+    servicebox/.style={rectangle, draw=secondarycolor, fill=secondarycolor!5, rounded corners=4pt, thick, inner sep=8pt},
+    volumebox/.style={cylinder, shape border rotate=90, draw=codepurple, fill=codepurple!10, aspect=0.25, font=\footnotesize\bfseries, align=center, inner sep=4pt},
+    netbox/.style={rectangle, draw=primarycolor!60, fill=boxbg, rounded corners=6pt, line width=1pt, inner sep=12pt},
+    flow/.style={->, thick, primarycolor},
+    healthflow/.style={->, very thick, color=codegreen},
+    mountflow/.style={->, thick, dashed, codepurple}
+]
+
+% Client
+\node[box, fill=primarycolor!10] (client) {\textbf{HTTP Client / Browser / curl}\\Query: \texttt{lat, long, cat, rad, link}};
+
+% Host Port
+\node[box, right=1.6cm of client, fill=primarycolor!5] (hostport) {\textbf{Host Port Mapping}\\\texttt{localhost:5213} / \texttt{10.50.47.100:5213}};
+
+% Docker Network outer box (we position containers inside)
+\node[box, right=2.0cm of hostport, yshift=1.6cm, fill=white, text width=5.2cm] (api) {
+    \textbf{Container: \texttt{proximity\_search\_api}}\\[2pt]
+    \footnotesize Base: \texttt{python:3.11-slim} $|$ Uvicorn: \texttt{0.0.0.0:5213}\\[3pt]
+    \begin{tabular}{c}
+    \hline
+    \textbf{FastAPI Endpoints} (\texttt{/search/}, \texttt{/docs})\\
+    $\downarrow$\\
+    \textbf{cKDTree} (Spatial Snap) + \textbf{CSR Matrix} (Roads)\\
+    $\downarrow$\\
+    \textbf{Dijkstra Algorithm} ($d_{\text{graph}} + d_{\text{euc}}$)\\
+    \hline
+    \end{tabular}\\[3pt]
+    \textbf{Healthcheck:} \texttt{GET /docs} $\to$ \textcolor{codegreen}{\textbf{HTTP 200}}
+};
+
+\node[box, right=2.0cm of hostport, yshift=-2.4cm, fill=white, text width=5.2cm] (tester) {
+    \textbf{Container: \texttt{proximity\_test\_client}}\\[2pt]
+    \footnotesize Base: \texttt{python:3.11-slim} $|$ Executable: \texttt{test\_api.py}\\[3pt]
+    \begin{tabular}{c}
+    \hline
+    \textbf{depends\_on:} \texttt{condition: service\_healthy}\\
+    $\downarrow$\\
+    \textbf{Automated Test Suite} ($n=20$ queries)\\
+    $\downarrow$\\
+    \textbf{Validation:} \textcolor{codegreen}{\textbf{Exact match: 20, Differences: 0}}\\
+    \hline
+    \end{tabular}\\[3pt]
+    Exit Code: \texttt{0} (Success)
+};
+
+% Volumes
+\node[volumebox, below=1.2cm of client, text width=3.2cm] (vol) {
+    \textbf{Host Volumes (Read-Only)}\\
+    \texttt{./data/locations.csv:ro}\\
+    \texttt{./link.txt:ro}
+};
+
+% Backgrounds
+\begin{scope}[on background layer]
+    \node[netbox, fit=(api) (tester), label={[anchor=north, font=\small\bfseries\color{primarycolor}]north:User-Defined Bridge Network (\texttt{proximity\_network}) with Built-in DNS}] (net) {};
+    \node[rectangle, draw=gray!70, fill=gray!5, rounded corners=6pt, dashed, fit=(hostport) (net) (vol), label={[anchor=south east, font=\footnotesize\itshape\color{gray!80}]south east:Host Workstation (Docker Engine / Compose v2)}] (hostbox) {};
+\end{scope}
+
+% Arrows
+\draw[flow, <->] (client) -- node[above, font=\scriptsize\bfseries] {HTTP Request / JSON Response} (hostport);
+\draw[flow, <->] (hostport) -- node[above, font=\scriptsize] {\texttt{5213/tcp}} (api.west);
+
+\draw[healthflow] (api.south) -- node[right, font=\scriptsize\bfseries] {Health Gate: \texttt{service\_healthy}} (tester.north);
+\draw[flow, ->] (tester.east) to[bend right=45] node[right, font=\scriptsize] {\texttt{http://proximity-api:5213/search/}} (api.east);
+
+\draw[mountflow] (vol.east) -| node[pos=0.25, below, font=\scriptsize] {Bind Mount (\texttt{:ro})} (api.south west);
+\draw[mountflow] (vol.east) -| node[pos=0.25, below, font=\scriptsize] {Bind Mount (\texttt{:ro})} (tester.south west);
+
+\end{tikzpicture}
+}
+\caption{System Architecture of the Containerized Proximity Search API Stack displaying multi-service Docker orchestration, user-defined bridge networking, healthcheck dependency gating, read-only volume mounts, and query flows.}
+\label{fig:system_architecture}
+\end{figure}
+
 % =========================================================
 \section{Docker Design Choices}
 
@@ -173,6 +258,115 @@ docker compose version
 
 \subsection{Step 2: Configuration Files Creation}
 We created \texttt{Dockerfile}, \texttt{Dockerfile.test}, \texttt{.dockerignore}, and \texttt{docker-compose.yml} in the project root directory.
+
+\subsubsection{2.1. Backend Service Definition (\texttt{Dockerfile})}
+The backend service Dockerfile packages the FastAPI application on top of \texttt{python:3.11-slim}. It leverages layer caching by copying \texttt{requirements.txt} prior to application code, exposes port \texttt{5213}, and defines an active HTTP healthcheck probe:
+\begin{lstlisting}[language=bash, caption={\texttt{Dockerfile}: Containerization definition for the core FastAPI service.}]
+# syntax=docker/dockerfile:1
+FROM python:3.11-slim
+
+# Prevent Python bytecode generation and enable unbuffered logging
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=5213 \
+    HOST=0.0.0.0
+
+WORKDIR /app
+
+# Install dependencies using pre-built binary wheels (layer cached)
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy application source code and default data
+COPY data_loader.py graph_builder.py search_engine.py main.py ./
+COPY data/ ./data/
+COPY link.txt ./link.txt
+
+EXPOSE 5213
+
+# Built-in healthcheck to verify FastAPI responsiveness
+HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5213/docs')" || exit 1
+
+# Start FastAPI application with Uvicorn
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5213"]
+\end{lstlisting}
+
+\subsubsection{2.2. Automated Test Client Definition (\texttt{Dockerfile.test})}
+The test client Dockerfile packages the verification script \texttt{test\_api.py}. It connects to the API over the user-defined bridge network, executes deterministic validation queries, and exits with code 0 on success (or code 1 on discrepancies):
+\begin{lstlisting}[language=bash, caption={\texttt{Dockerfile.test}: Image specification for automated verification client.}]
+# syntax=docker/dockerfile:1
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    API_URL=http://proximity-api:5213/search/
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+COPY test_api.py ./
+COPY data/ ./data/
+COPY link.txt ./link.txt
+
+# Execute validation queries against proximity-api container
+CMD ["python", "test_api.py", "--csv", "data/locations.csv", "--link", "link.txt", "--n", "20"]
+\end{lstlisting}
+
+\subsubsection{2.3. Full-Stack Multi-Service Orchestration (\texttt{docker-compose.yml})}
+The Compose manifest defines both services, assigns the custom bridge network with internal DNS, configures read-only host volume bind mounts, and establishes synchronized startup using healthcheck conditions:
+\begin{lstlisting}[language=yaml, caption={\texttt{docker-compose.yml}: Declarative multi-container orchestration manifest.}]
+services:
+  proximity-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: proximity_search_api
+    restart: unless-stopped
+    ports:
+      - "5213:5213"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PORT=5213
+      - HOST=0.0.0.0
+    volumes:
+      - ./data:/app/data:ro
+      - ./link.txt:/app/link.txt:ro
+    networks:
+      - proximity-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5213/docs')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  proximity-test-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: proximity_test_client
+    environment:
+      - API_URL=http://proximity-api:5213/search/
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./data:/app/data:ro
+      - ./link.txt:/app/link.txt:ro
+    networks:
+      - proximity-net
+    depends_on:
+      proximity-api:
+        condition: service_healthy
+
+networks:
+  proximity-net:
+    driver: bridge
+    name: proximity_network
+\end{lstlisting}
 
 \subsection{Step 3: Single-Command Build and Image Verification}
 The entire stack was built and launched using one unified command:
