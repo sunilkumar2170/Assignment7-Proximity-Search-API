@@ -146,7 +146,7 @@ As depicted in Figure~\ref{fig:system_architecture}, the orchestration encompass
     \item \textbf{User-Defined Bridge Network (\texttt{proximity\_network})}: An isolated bridge network operating on subnet \texttt{172.18.0.0/16}. It provides internal DNS hostname resolution, allowing the test client to communicate with the backend at \texttt{http://proximity-api:5213} without hardcoding IP addresses.
     \item \textbf{\texttt{proximity-api} (Backend Service)}: Built from \texttt{python:3.11-slim}. On startup, it ingests \texttt{locations.csv} and \texttt{link.txt}, precomputes a 2D spatial $k$-d tree (\texttt{cKDTree}) and a sparse Compressed Sparse Row (CSR) graph (14,800 directed edges), and exposes ASGI endpoints on \texttt{0.0.0.0:5213}. An internal healthcheck probes \texttt{GET /docs} to signal operational readiness.
     \item \textbf{\texttt{proximity-test-client} (Verification Service)}: Built from \texttt{python:3.11-slim}. It remains blocked until \texttt{proximity-api} passes its healthcheck gate (\texttt{condition: service\_healthy}). Once unlocked, it executes 20 ground-truth verification queries via \texttt{test\_api.py}, validates exact positional ranking, and exits with code \texttt{0}.
-    \item \textbf{Host Filesystem Datasets (Read-Only Bind Mounts)}: Datasets are mounted with the \texttt{:ro} flag (\texttt{./data/locations.csv $\to$ /app/data/locations.csv:ro} and \texttt{./link.txt $\to$ /app/link.txt:ro}), ensuring data immutability and preventing accidental write modifications.
+    \item \textbf{Host Filesystem Datasets (Read-Only Bind Mounts)}: Datasets are mounted with the \texttt{:ro} flag (\texttt{./data $\to$ /app/data:ro} and \texttt{./link.txt $\to$ /app/link.txt:ro}), ensuring data immutability and preventing accidental write modifications.
     \item \textbf{Six-Step Execution Flow}: The system guarantees zero race conditions through ordered execution: (1) Image Build $\to$ (2) API Initialization \& Graph Precomputation $\to$ (3) Healthcheck HTTP 200 OK $\to$ (4) Test Client Launch $\to$ (5) Automated 20/20 Test Passing \& Clean Exit $\to$ (6) Host Browser Query Verification.
 \end{itemize}
 
@@ -171,9 +171,9 @@ Table~\ref{tab:design_choices} summarizes the core Docker design components and 
 \textbf{Base Image} & \texttt{python:3.11-slim} & Debian-based runtime providing full \texttt{glibc} compatibility with pre-built PyPI \texttt{manylinux} wheels for NumPy and SciPy; avoids Alpine's prolonged C/Fortran compile times. \\
 \textbf{API Port} & \texttt{5213:5213} & Maps host port \texttt{5213} to container port \texttt{5213}, enabling direct access from host web browsers, curl, and external evaluators. \\
 \textbf{Network} & User-Defined Bridge & Dedicated bridge network (\texttt{proximity\_network}) with automatic internal DNS resolution; decouples inter-service communication from host networking. \\
-\textbf{Volumes} & Read-Only Bind Mounts & Mounts \texttt{locations.csv} and \texttt{link.txt} with \texttt{:ro} flag; prevents image bloat, guarantees data immutability, and allows dataset updates without rebuilding images. \\
+\textbf{Volumes} & Read-Only Bind Mounts & Mounts host directory \texttt{./data} and \texttt{./link.txt} with \texttt{:ro} flag; prevents image bloat, guarantees data immutability, and allows dataset updates without rebuilding images. \\
 \textbf{Environment} & \texttt{HOST=0.0.0.0}, \texttt{PORT=5213} & Binds ASGI server to all network interfaces inside container; \texttt{PYTHONUNBUFFERED=1} guarantees real-time log streaming in \texttt{docker compose logs}. \\
-\textbf{Health Check} & \texttt{GET http://localhost:5213/docs} & Actively polls API readiness with a 10s interval and 30s start-period to accommodate heavy graph construction before admitting traffic. \\
+\textbf{Health Check} & \texttt{GET http://localhost:5213/docs} & Actively polls API readiness with interval 10s, timeout 5s, retries 3, and start-period 5s to verify FastAPI responsiveness before admitting traffic. \\
 \textbf{Dependency} & \texttt{condition: service\_healthy} & Synchronizes service startup, preventing test client crashes caused by querying uninitialized graph data structures. \\ \bottomrule
 \end{tabular}
 \end{table}
@@ -184,17 +184,17 @@ Table~\ref{tab:design_choices} summarizes the core Docker design components and 
 While Alpine Linux images are known for minimal disk footprint ($\sim 5$\,MB), Alpine utilizes \texttt{musl libc} rather than the standard GNU C Library (\texttt{glibc}). High-performance scientific computing libraries like NumPy, SciPy, and Pandas do not provide standard pre-compiled \texttt{musl} binary wheels. As a result, building on Alpine forces a lengthy compile-from-source procedure requiring \texttt{gcc}, \texttt{gfortran}, and \texttt{openblas-dev}, which balloons build time by several minutes and increases the final layer size. Conversely, \texttt{python:3.11-slim} provides full \texttt{manylinux} binary wheel compatibility, resulting in a build that completes in under 30 seconds with an image size of only $\sim 340$\,MB.
 
 \subsubsection{2. User-Defined Bridge Networking vs. Default Bridge}
-Rather than using the default Docker bridge network (where containers can only communicate via explicit IP addresses or legacy links), we declared a dedicated bridge network named \texttt{proximity\_network}. In user-defined bridge networks:
+Rather than using the default Docker bridge network (where containers can only communicate via explicit IP addresses or legacy links), we declared a dedicated bridge network named \texttt{proximity-net} (with bridge alias \texttt{proximity\_network}). In user-defined bridge networks:
 \begin{itemize}[itemsep=1pt, topsep=1pt]
     \item Containers benefit from \textbf{automatic internal DNS resolution}, allowing \texttt{proximity-test-client} to address the API server simply as \texttt{http://proximity-api:5213}.
     \item The network provides \textbf{complete environment isolation}; external containers or processes on the host machine cannot eavesdrop on internal container traffic.
 \end{itemize}
 
 \subsubsection{3. Read-Only Bind Mounts vs. Static Image Baking}
-The geospatial datasets (\texttt{locations.csv} and \texttt{link.txt}) are mounted as read-only bind mounts:
+The geospatial datasets (\texttt{data/} directory and \texttt{link.txt}) are mounted as read-only bind mounts:
 \begin{lstlisting}[language=yaml]
 volumes:
-  - ./data/locations.csv:/app/data/locations.csv:ro
+  - ./data:/app/data:ro
   - ./link.txt:/app/link.txt:ro
 \end{lstlisting}
 This provides two distinct advantages:
@@ -204,14 +204,14 @@ This provides two distinct advantages:
 \end{enumerate}
 
 \subsubsection{4. Container Healthchecks \& Synchronized Startup}
-The Proximity Search API must load 6,000 spatial locations and parse 14,800 linkage edges on initialization to construct its $k$-d tree and sparse CSR matrix. If the test client initiates queries before graph construction completes, it encounters immediate connection timeouts or HTTP 500 errors. We resolved this by implementing an active Docker healthcheck using Python's built-in standard library:
+The Proximity Search API loads 6,000 spatial locations and parses 14,800 linkage edges on initialization to construct its $k$-d tree and sparse CSR matrix. If the test client initiates queries before graph construction completes, it encounters immediate connection timeouts. We resolved this by implementing an active Docker healthcheck using Python's standard library:
 \begin{lstlisting}[language=yaml]
 healthcheck:
-  test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5213/docs')"]
+  test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5213/docs')"]
   interval: 10s
   timeout: 5s
-  retries: 5
-  start_period: 30s
+  retries: 3
+  start_period: 5s
 \end{lstlisting}
 The test client service declares:
 \begin{lstlisting}[language=yaml]
@@ -246,55 +246,67 @@ assignment-7/
 \end{lstlisting}
 
 \subsection{1. API Container Configuration (\texttt{Dockerfile})}
-The backend \texttt{Dockerfile} leverages Docker layer caching by copying \texttt{requirements.txt} and installing PyPI packages prior to copying application source code:
+The backend \texttt{Dockerfile} leverages Docker layer caching by copying \texttt{requirements.txt} and upgrading \texttt{pip} prior to copying application source code:
 \begin{lstlisting}[language=docker, caption={\texttt{Dockerfile}: Production container definition for \texttt{proximity-api}.}]
+# syntax=docker/dockerfile:1
 FROM python:3.11-slim
 
+# Prevent Python from writing .pyc files and enable unbuffered output
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=5213 \
+    HOST=0.0.0.0
+
+# Set working directory
 WORKDIR /app
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    HOST=0.0.0.0 \
-    PORT=5213
-
-# Install system dependencies (curl for healthchecks / troubleshooting)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Layer caching: install dependencies before copying application source code
+# Copy dependency definition first for Docker layer caching
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application source modules
-COPY main.py search_engine.py graph_builder.py data_loader.py ./
+# Install dependencies using pre-built binary wheels
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
+# Copy application source code and default data
+COPY data_loader.py graph_builder.py search_engine.py main.py ./
+COPY data/ ./data/
+COPY link.txt ./link.txt
+
+# Expose API port
 EXPOSE 5213
 
+# Healthcheck to verify FastAPI responsiveness
+HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5213/docs')" || exit 1
+
+# Start FastAPI application with Uvicorn
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5213"]
 \end{lstlisting}
 
 \subsection{2. Automated Test Client Configuration (\texttt{Dockerfile.test})}
-The test client container packages the test evaluation script and its dependencies:
+The test client container packages the test evaluation script and its dependencies, executing validation queries against the API container:
 \begin{lstlisting}[language=docker, caption={\texttt{Dockerfile.test}: Image specification for \texttt{proximity-test-client}.}]
+# syntax=docker/dockerfile:1
 FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    API_URL=http://proximity-api:5213/search/
 
 WORKDIR /app
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
+# Copy dependency definition and install
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Copy test evaluation script and graph helper routines
-COPY test_api.py graph_builder.py data_loader.py search_engine.py ./
+# Copy test script and dataset
+COPY test_api.py ./
+COPY data/ ./data/
+COPY link.txt ./link.txt
 
-CMD ["python3", "test_api.py"]
+# Execute validation queries against proximity-api container
+CMD ["python", "test_api.py", "--csv", "data/locations.csv", "--link", "link.txt", "--n", "20"]
 \end{lstlisting}
 
 \subsection{3. Multi-Service Orchestration Manifest (\texttt{docker-compose.yml})}
@@ -306,24 +318,24 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: proximity_search_api
+    restart: unless-stopped
     ports:
       - "5213:5213"
     environment:
-      - HOST=0.0.0.0
-      - PORT=5213
       - PYTHONUNBUFFERED=1
+      - PORT=5213
+      - HOST=0.0.0.0
     volumes:
-      - ./data/locations.csv:/app/data/locations.csv:ro
+      - ./data:/app/data:ro
       - ./link.txt:/app/link.txt:ro
     networks:
-      - proximity_network
+      - proximity-net
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5213/docs')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5213/docs')"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 30s
-    restart: unless-stopped
+      retries: 3
+      start_period: 5s
 
   proximity-test-client:
     build:
@@ -331,20 +343,21 @@ services:
       dockerfile: Dockerfile.test
     container_name: proximity_test_client
     environment:
+      - API_URL=http://proximity-api:5213/search/
       - PYTHONUNBUFFERED=1
-      - API_URL=http://proximity-api:5213
     volumes:
-      - ./data/locations.csv:/app/data/locations.csv:ro
+      - ./data:/app/data:ro
       - ./link.txt:/app/link.txt:ro
     networks:
-      - proximity_network
+      - proximity-net
     depends_on:
       proximity-api:
         condition: service_healthy
 
 networks:
-  proximity_network:
+  proximity-net:
     driver: bridge
+    name: proximity_network
 \end{lstlisting}
 
 % =========================================================
@@ -510,7 +523,7 @@ During the containerization and testing lifecycle, several non-trivial engineeri
                   title={\bfseries Error 3: Multi-Container Startup Race Condition}, fonttitle=\small]
 \textbf{Problem}: Upon running \texttt{docker compose up}, the \texttt{proximity-test-client} container crashed prematurely with \texttt{urllib.error.URLError: <urlopen error [Errno 111] Connection refused>}.\\
 \textbf{Cause}: Docker Compose started both containers concurrently. Because \texttt{proximity-api} requires approximately 4 seconds to parse 14,800 graph edges and compute its spatial $k$-d tree, the test client attempted to query the API before the ASGI listener was online.\\
-\textbf{Fix}: Configured an active Docker \texttt{healthcheck} on \texttt{proximity-api} polling \texttt{/docs} with \texttt{start\_period: 30s}, and declared \texttt{depends\_on: \{ proximity-api: \{ condition: service\_healthy \} \}} on \texttt{proximity-test-client}.\\
+\textbf{Fix}: Configured an active Docker \texttt{healthcheck} on \texttt{proximity-api} polling \texttt{/docs} with \texttt{interval: 10s, timeout: 5s, retries: 3, start\_period: 5s}, and declared \texttt{depends\_on: \{ proximity-api: \{ condition: service\_healthy \} \}} on \texttt{proximity-test-client}.\\
 \textbf{Verification}: Confirmed that Compose held the test client in pending state until \texttt{proximity-api} logged \texttt{(healthy)}, after which tests executed successfully without a single connection drop.
 \end{tcolorbox}
 
