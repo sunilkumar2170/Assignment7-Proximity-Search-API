@@ -114,85 +114,10 @@ The architecture comprises two decoupled container services connected over an is
 \end{enumerate}
 
 \begin{figure}[!htb]
-\centering
-\resizebox{0.98\linewidth}{!}{%
-\begin{tikzpicture}[
-    >=Stealth,
-    font=\small,
-    clientbox/.style={rectangle, draw=primarycolor, fill=primarycolor!10, rounded corners=4pt, thick, align=center, inner sep=6pt},
-    portbox/.style={rectangle, draw=secondarycolor, fill=secondarycolor!10, rounded corners=4pt, thick, align=center, inner sep=5pt},
-    cbox/.style={rectangle, draw=primarycolor, fill=white, rounded corners=4pt, thick, align=center, inner sep=6pt},
-    volumebox/.style={rectangle, draw=codepurple, fill=codepurple!10, rounded corners=4pt, thick, align=center, inner sep=6pt},
-    netbox/.style={rectangle, draw=primarycolor!70, fill=boxbg, rounded corners=6pt, line width=1pt, inner sep=14pt},
-    flow/.style={->, very thick, primarycolor},
-    testflow/.style={->, very thick, secondarycolor},
-    healthflow/.style={->, very thick, codegreen},
-    mountflow/.style={->, thick, dashed, codepurple}
-]
-
-% Row 1: External Client & Port
-\node[clientbox] (client) at (0, 7.2) {\textbf{HTTP Client / Browser / Automated Evaluator}\\\footnotesize Query: \texttt{GET /search/?lat=0.5\&long=0.5\&cat=bank\&rad=0.3}};
-\node[portbox] (hostport) at (0, 5.8) {\textbf{Host Port Forwarding (Docker Engine)}\\\footnotesize \texttt{0.0.0.0:5213 $\longrightarrow$ 5213/tcp} (\url{http://localhost:5213})};
-
-% Row 2: Containers side by side
-\node[cbox, text width=6.6cm] (api) at (-4.2, 1.8) {
-    \textbf{\large Service: \texttt{proximity-api}}\\[2pt]
-    \textbf{Container:} \texttt{proximity\_search\_api} $|$ \textbf{Status:} \textcolor{codegreen}{\textbf{Up (healthy)}}\\[4pt]
-    \rule{6.4cm}{0.4pt}\\[4pt]
-    \begin{tabular}{@{}ll@{}}
-    $\bullet$ \textbf{Base Image:} & \texttt{python:3.11-slim} (146\,MB) \\
-    $\bullet$ \textbf{Listener:} & Uvicorn ASGI on \texttt{0.0.0.0:5213} \\
-    $\bullet$ \textbf{Routes:} & \texttt{GET /search/}, \texttt{POST /search/}, \texttt{/docs} \\
-    $\bullet$ \textbf{Spatial Index:} & 2D $k$-d Tree (\texttt{scipy.spatial.cKDTree}) \\
-    $\bullet$ \textbf{Graph Engine:} & Sparse CSR Matrix (14,800 edges) \\
-    $\bullet$ \textbf{Algorithm:} & Dijkstra Shortest Path ($d_{\text{graph}} + d_{\text{euc}}$) \\
-    $\bullet$ \textbf{Healthcheck:} & \texttt{GET /docs} $\to$ \textcolor{codegreen}{\textbf{HTTP 200 OK}} (10s) \\
-    \end{tabular}
-};
-
-\node[cbox, text width=6.6cm] (tester) at (4.2, 1.8) {
-    \textbf{\large Service: \texttt{proximity-test-client}}\\[2pt]
-    \textbf{Container:} \texttt{proximity\_test\_client} $|$ \textbf{Status:} \textcolor{primarycolor}{\textbf{Exited (0)}}\\[4pt]
-    \rule{6.4cm}{0.4pt}\\[4pt]
-    \begin{tabular}{@{}ll@{}}
-    $\bullet$ \textbf{Base Image:} & \texttt{python:3.11-slim} (146\,MB) \\
-    $\bullet$ \textbf{Dependency:} & \texttt{condition: service\_healthy} \\
-    $\bullet$ \textbf{DNS Hostname:} & \texttt{http://proximity-api:5213} \\
-    $\bullet$ \textbf{Test Suite:} & \texttt{test\_api.py} ($n=20$ random cases) \\
-    $\bullet$ \textbf{Validation:} & Top-10 ID \& Positional Rank Match \\
-    $\bullet$ \textbf{Accuracy:} & \textcolor{codegreen}{\textbf{Exact match: 20, Differences: 0}} \\
-    $\bullet$ \textbf{Exit Code:} & \texttt{0} (Signal Success to Compose) \\
-    \end{tabular}
-};
-
-% Row 3: Read-Only Volumes
-\node[volumebox] (vol) at (0, -2.6) {
-    \textbf{Host Filesystem Datasets (Read-Only Bind Mounts: \texttt{:ro})}\\[2pt]
-    \footnotesize \texttt{./data/locations.csv $\longrightarrow$ /app/data/locations.csv:ro} \quad $|$ \quad \texttt{./link.txt $\longrightarrow$ /app/link.txt:ro}
-};
-
-% Background Layer for Docker Network & Host
-\begin{scope}[on background layer]
-    \node[netbox, fit=(api) (tester), label={[anchor=north, font=\small\bfseries\color{primarycolor}, yshift=-3pt]north:User-Defined Bridge Network (\texttt{proximity\_network}) \quad $|$ \quad Subnet: \texttt{172.18.0.0/16} \quad $|$ \quad Automatic DNS Resolution}] (net) {};
-    \node[rectangle, draw=gray!60, fill=gray!3, rounded corners=8pt, dashed, line width=0.8pt, fit=(client) (hostport) (net) (vol), label={[anchor=south east, font=\scriptsize\itshape\color{gray!80}, xshift=-6pt, yshift=4pt]south east:Personal Host Workstation (Docker Desktop / Engine v27 / Compose v2)}] (hostbox) {};
-\end{scope}
-
-% Arrows
-\draw[flow, <->] (client) -- node[right, font=\scriptsize\bfseries] {HTTP Request / JSON Payload} (hostport);
-\draw[flow, <->] (hostport) -| node[pos=0.25, above, font=\scriptsize\bfseries] {Port Map: \texttt{5213} $\leftrightarrow$ \texttt{5213}} (api.north);
-
-% Inter-container communications
-\draw[healthflow] (api.north east) -- node[above, font=\scriptsize\bfseries, text=codegreen] {1. \texttt{depends\_on}: Healthy Gate} (tester.north west);
-\draw[testflow] (tester.south west) -- node[below, font=\scriptsize\bfseries, text=secondarycolor] {2. HTTP Validation Queries (via DNS)} (api.south east);
-
-% Volume Bind Mounts
-\draw[mountflow] (vol.west) -| node[pos=0.25, below, font=\scriptsize] {Bind Mount (\texttt{:ro})} (api.south);
-\draw[mountflow] (vol.east) -| node[pos=0.25, below, font=\scriptsize] {Bind Mount (\texttt{:ro})} (tester.south);
-
-\end{tikzpicture}
-}
-\caption{Comprehensive System Architecture of the Dockerized Proximity Search API Stack. Illustrates host port mapping (\texttt{5213}), user-defined bridge network (\texttt{proximity\_network}) with automatic DNS resolution, synchronized service startup via Docker healthchecks, read-only dataset bind mounts, and automated test verification.}
-\label{fig:system_architecture}
+    \centering
+    \includegraphics[width=\linewidth]{docker_architecture.png}
+    \caption{Comprehensive System Architecture and Execution Flow of the Dockerized Proximity Search API Stack. Illustrates host port mapping (\texttt{5213}), user-defined bridge network (\texttt{proximity\_network}) with automatic DNS resolution, synchronized service startup via Docker healthchecks, read-only dataset bind mounts, and automated test verification.}
+    \label{fig:system_architecture}
 \end{figure}
 
 % =========================================================
