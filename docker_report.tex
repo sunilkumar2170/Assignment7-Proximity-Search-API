@@ -204,7 +204,11 @@ This provides two distinct advantages:
 \end{enumerate}
 
 \subsubsection{4. Container Healthchecks \& Synchronized Startup}
-The Proximity Search API loads 6,000 spatial locations and parses 14,800 linkage edges on initialization to construct its $k$-d tree and sparse CSR matrix. If the test client initiates queries before graph construction completes, it encounters immediate connection timeouts. We resolved this by implementing an active Docker healthcheck using Python's standard library:
+The Proximity Search API loads 6,000 spatial locations and parses 14,800 linkage edges on initialization to construct its $k$-d tree and sparse CSR matrix. If the test client initiates queries before graph construction completes, it encounters immediate connection timeouts. We resolved this by establishing active healthcheck probes:
+\begin{itemize}[itemsep=1pt, topsep=2pt]
+    \item \textbf{Image-Level Default (\texttt{Dockerfile})}: The \texttt{Dockerfile} embeds an intrinsic default healthcheck (\texttt{interval=15s, timeout=5s, start-period=5s, retries=3}), ensuring that standalone container executions (\texttt{docker run}) remain self-monitoring.
+    \item \textbf{Compose-Level Configuration (\texttt{docker-compose.yml})}: When managed via Docker Compose, the manifest configures a container-level healthcheck with a slightly tighter polling frequency (\texttt{interval=10s}) to promptly unblock the dependent verification service:
+\end{itemize}
 \begin{lstlisting}[language=yaml]
 healthcheck:
   test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5213/docs')"]
@@ -238,7 +242,7 @@ assignment-7/
 |-- graph_builder.py             # link.txt parser & sparse CSR matrix builder
 |-- data_loader.py               # locations.csv ingestion routines
 |-- test_api.py                  # Automated 20-case validation test client
-|-- Dockerfile                   # Multi-stage image build for proximity-api
+|-- Dockerfile                   # API container image definition
 |-- Dockerfile.test              # Lightweight test client image build
 |-- docker-compose.yml           # Declarative multi-container orchestration manifest
 |-- .dockerignore                # Context build filter (excludes git, pycache, logs)
