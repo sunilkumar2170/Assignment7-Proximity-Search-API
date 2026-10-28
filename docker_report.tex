@@ -181,14 +181,21 @@ docker compose up --build -d
 \end{lstlisting}
 This command downloads the base image, installs wheels into container layers, mounts volumes, configures the network, and starts both services in detached mode.
 
-We then verified that both application and test-client container images were successfully constructed and registered in the local Docker image store using \texttt{docker images}:
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=0.95\linewidth]{docker_compose_build.png}
+    \caption{BuildKit execution output for \texttt{docker compose up --build -d} showing layer caching, image creation, and automated container startup.}
+    \label{fig:docker_compose_build}
+\end{figure}
+
+We verified that both application and test-client container images were successfully constructed and registered in the local Docker image store using \texttt{docker images}:
 \begin{lstlisting}[language=bash]
 docker images
 \end{lstlisting}
 
 \begin{figure}[!htb]
     \centering
-    \includegraphics[width=0.98\linewidth]{docker_images.png}
+    \includegraphics[width=0.92\linewidth]{docker_images.png}
     \caption{Terminal output of \texttt{docker images} confirming creation and tagging of \texttt{assignment-7-proximity-api} and \texttt{assignment-7-proximity-test-client} with active container usage and layer caching.}
     \label{fig:docker_images}
 \end{figure}
@@ -197,14 +204,21 @@ docker images
 Container health, volume mounts, network bindings, and live service execution were monitored and deeply inspected via:
 \begin{lstlisting}[language=bash]
 cd Downloads/assignment-7
-docker compose ps
+docker compose ps -a
 docker inspect proximity_search_api
 docker compose logs --tail 50
 \end{lstlisting}
 
 \begin{figure}[!htb]
     \centering
-    \includegraphics[width=0.95\linewidth]{docker_desktop.png}
+    \includegraphics[width=0.98\linewidth]{docker_compose_ps.png}
+    \caption{Terminal output of \texttt{docker compose ps -a} confirming \texttt{proximity\_search\_api} running healthy and \texttt{proximity\_test\_client} exiting successfully (code 0) with all 20 test cases matching.}
+    \label{fig:docker_compose_ps}
+\end{figure}
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=0.92\linewidth]{docker_desktop.png}
     \caption{Docker Desktop dashboard showing running \texttt{proximity-api} service on port \texttt{5213:5213}, completed test client execution, and live HTTP 200 healthcheck logs.}
     \label{fig:docker_desktop}
 \end{figure}
@@ -282,9 +296,16 @@ docker compose down
 \end{tcolorbox}
 
 \begin{tcolorbox}[colback=white, colframe=primarycolor!80, boxrule=0.7pt, title={\bfseries 4. Coordinate Axis Alignment in Graph Edge Ingestion}, fonttitle=\small]
-\textbf{Issue}: In \texttt{link.txt}, coordinate lines were initially interpreted as \texttt{lon\_lat} instead of \texttt{lat\_lon}. Because both axes span $[0, 1]$, edges matched grid points, but the resulting graph was transposed along the diagonal, causing differences between calculated Dijkstra shortest paths and test ground truth.\\
+\textbf{Issue}: In \texttt{link.txt}, coordinate lines were initially interpreted as \texttt{lon\_lat} instead of \texttt{lat\_lon}. Because both axes span $[0, 1]$, edges matched grid points, but the resulting graph was transposed along the diagonal, causing differences between calculated Dijkstra shortest paths and test ground truth (as shown in Figure~\ref{fig:docker_error_diff}).\\
 \textbf{Resolution}: Standardized \texttt{COORD\_ORDER = "lat\_lon"} across \texttt{graph\_builder.py} and \texttt{data\_loader.py}, and ensured \texttt{test\_api.py} returns a non-zero exit code on discrepancies. The test suite achieved 100\% agreement (\texttt{Exact match: 20, Differences: 0}).
 \end{tcolorbox}
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=0.75\linewidth]{docker_error_diff.png}
+    \caption{Console log output demonstrating test discrepancies (\texttt{DIFF}) encountered due to the axis ordering bug prior to resolution.}
+    \label{fig:docker_error_diff}
+\end{figure}
 
 % =========================================================
 \section{Docker Commands Used \& Reference Table}
