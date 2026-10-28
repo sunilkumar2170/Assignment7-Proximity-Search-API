@@ -184,9 +184,17 @@ This command downloads the base image, installs wheels into container layers, mo
 \subsection{Step 4: Status and Log Verification}
 Container health was monitored via:
 \begin{lstlisting}[language=bash]
+cd Downloads/assignment-7
 docker compose ps
 docker compose logs -f proximity-api
 \end{lstlisting}
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=0.95\linewidth]{docker_desktop.png}
+    \caption{Docker Desktop dashboard showing running \texttt{proximity-api} service on port \texttt{5213:5213}, completed test client execution, and live HTTP 200 healthcheck logs.}
+    \label{fig:docker_desktop}
+\end{figure}
 
 \subsection{Step 5: Querying the Containerized Endpoint}
 The live containerized endpoint was verified using HTTP GET queries:
@@ -195,8 +203,27 @@ curl -X GET "http://localhost:5213/search/?lat=0.5&long=0.5&cat=bank&rad=0.3"
 \end{lstlisting}
 The API responded with the expected JSON payload within 1.2\,ms:
 \begin{lstlisting}[language=json]
-{"results": [4850, 4948, 4947, 4648, 5348, 4451, 4753, 5347, 4654, 5349]}
+{"results": [4850, 4948, 4947, 4648, 4753, 5349, 5348, 4451, 4654, 5347]}
 \end{lstlisting}
+
+\begin{figure}[!htb]
+    \centering
+    \begin{subfigure}[t]{0.49\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{docker_docs.png}
+        \caption{FastAPI Swagger UI at \url{http://localhost:5213/docs}.}
+        \label{fig:docker_docs}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[t]{0.49\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{docker_search_result.png}
+        \caption{Live GET query returning top-10 location IDs.}
+        \label{fig:docker_search}
+    \end{subfigure}
+    \caption{Browser verification of the containerized Proximity Search API on port \texttt{5213}.}
+    \label{fig:browser_verification}
+\end{figure}
 
 \subsection{Step 6: Graceful Teardown}
 When finished, containers, networks, and allocated resources were cleanly stopped:
