@@ -170,8 +170,8 @@ Table~\ref{tab:design_choices} summarizes the core Docker design components and 
 \textbf{Component} & \textbf{Design Choice} & \textbf{Technical Justification / Rationale} \\ \midrule
 \textbf{Base Image} & \texttt{python:3.11-slim} & Debian-based runtime providing full \texttt{glibc} compatibility with pre-built PyPI \texttt{manylinux} wheels for NumPy and SciPy; avoids Alpine's prolonged C/Fortran compile times. \\
 \textbf{API Port} & \texttt{5213:5213} & Maps host port \texttt{5213} to container port \texttt{5213}, enabling direct access from host web browsers, curl, and external evaluators. \\
-\textbf{Network} & User-Defined Bridge & Dedicated bridge network (\texttt{proximity\_network}) with automatic internal DNS resolution; decouples inter-service communication from host networking. \\
-\textbf{Volumes} & Read-Only Bind Mounts & Mounts host directory \texttt{./data} and \texttt{./link.txt} with \texttt{:ro} flag; prevents image bloat, guarantees data immutability, and allows dataset updates without rebuilding images. \\
+\textbf{Network} & User-Defined Bridge & Dedicated bridge network (Compose key \texttt{proximity-net}, Docker network name \texttt{proximity\_network}) with automatic internal DNS resolution. \\
+\textbf{Volumes} & Read-Only Bind Mounts & Mounts host directory \texttt{./data} and \texttt{./link.txt} with \texttt{:ro} flag; enables live dataset synchronization without rebuilds while preventing runtime file modification. \\
 \textbf{Environment} & \texttt{HOST=0.0.0.0}, \texttt{PORT=5213} & Binds ASGI server to all network interfaces inside container; \texttt{PYTHONUNBUFFERED=1} guarantees real-time log streaming in \texttt{docker compose logs}. \\
 \textbf{Health Check} & \texttt{GET http://localhost:5213/docs} & Actively polls API readiness with interval 10s, timeout 5s, retries 3, and start-period 5s to verify FastAPI responsiveness before admitting traffic. \\
 \textbf{Dependency} & \texttt{condition: service\_healthy} & Synchronizes service startup, preventing test client crashes caused by querying uninitialized graph data structures. \\ \bottomrule
@@ -181,26 +181,26 @@ Table~\ref{tab:design_choices} summarizes the core Docker design components and 
 \subsection{Detailed Analysis of Design Choices}
 
 \subsubsection{1. Base Image: Debian Slim vs. Alpine Linux}
-While Alpine Linux images are known for minimal disk footprint ($\sim 5$\,MB), Alpine utilizes \texttt{musl libc} rather than the standard GNU C Library (\texttt{glibc}). High-performance scientific computing libraries like NumPy, SciPy, and Pandas do not provide standard pre-compiled \texttt{musl} binary wheels. As a result, building on Alpine forces a lengthy compile-from-source procedure requiring \texttt{gcc}, \texttt{gfortran}, and \texttt{openblas-dev}, which balloons build time by several minutes and increases the final layer size. Conversely, \texttt{python:3.11-slim} provides full \texttt{manylinux} binary wheel compatibility, resulting in a build that completes in under 30 seconds with an image size of only $\sim 340$\,MB.
+While Alpine Linux images are known for minimal disk footprint ($\sim 5$\,MB), Alpine utilizes \texttt{musl libc} rather than the standard GNU C Library (\texttt{glibc}). High-performance scientific computing libraries like NumPy, SciPy, and Pandas do not provide standard pre-compiled \texttt{musl} binary wheels. As a result, building on Alpine forces a lengthy compile-from-source procedure requiring \texttt{gcc}, \texttt{gfortran}, and \texttt{openblas-dev}, which balloons build time by several minutes and increases the final layer size. Conversely, \texttt{python:3.11-slim} provides full \texttt{manylinux} binary wheel compatibility, resulting in a fast, deterministic build with a compressed base content size of only $\sim 146$\,MB.
 
 \subsubsection{2. User-Defined Bridge Networking vs. Default Bridge}
-Rather than using the default Docker bridge network (where containers can only communicate via explicit IP addresses or legacy links), we declared a dedicated bridge network named \texttt{proximity-net} (with bridge alias \texttt{proximity\_network}). In user-defined bridge networks:
+Rather than using the default Docker bridge network (where containers can only communicate via explicit IP addresses or legacy links), we configured a dedicated user-defined bridge network defined under the Compose key \texttt{proximity-net} with the explicit Docker engine network name \texttt{proximity\_network}. In user-defined bridge networks:
 \begin{itemize}[itemsep=1pt, topsep=1pt]
     \item Containers benefit from \textbf{automatic internal DNS resolution}, allowing \texttt{proximity-test-client} to address the API server simply as \texttt{http://proximity-api:5213}.
-    \item The network provides \textbf{complete environment isolation}; external containers or processes on the host machine cannot eavesdrop on internal container traffic.
+    \item The network provides \textbf{service-level network segmentation}; internal container communication between the verification client and API is segmented onto \texttt{proximity\_network}, while host accessibility is explicitly controlled via the exposed port \texttt{5213}.
 \end{itemize}
 
 \subsubsection{3. Read-Only Bind Mounts vs. Static Image Baking}
-The geospatial datasets (\texttt{data/} directory and \texttt{link.txt}) are mounted as read-only bind mounts:
+Although the \texttt{Dockerfile} includes default copies of \texttt{data/} and \texttt{link.txt} to ensure the image can run standalone, the Compose manifest defines read-only bind mounts:
 \begin{lstlisting}[language=yaml]
 volumes:
   - ./data:/app/data:ro
   - ./link.txt:/app/link.txt:ro
 \end{lstlisting}
-This provides two distinct advantages:
+This runtime mount configuration provides two critical operational advantages:
 \begin{enumerate}[label=\alph*), itemsep=1pt]
-    \item \textbf{Image Immutability \& Portability}: The application container image remains lightweight and decoupled from specific dataset releases.
-    \item \textbf{Integrity Protection}: The \texttt{:ro} flag prevents any buggy application routine from inadvertently modifying or corrupting the input coordinate data during query execution.
+    \item \textbf{Host Dataset Synchronization}: Updates to dataset files on the host filesystem are immediately accessible inside the container without requiring an image rebuild cycle.
+    \item \textbf{Data Integrity Protection}: The \texttt{:ro} (read-only) flag guarantees that application routines cannot inadvertently alter, append to, or corrupt the underlying spatial coordinate files during execution.
 \end{enumerate}
 
 \subsubsection{4. Container Healthchecks \& Synchronized Startup}
@@ -365,12 +365,14 @@ networks:
 \end{lstlisting}
 
 % =========================================================
-% 6. BUILD & DEPLOYMENT
+% 6. STEPS FOLLOWED: INSTALL, BUILD, RUN
 % =========================================================
-\section{Build \& Deployment Steps}
+\section{Steps Followed: Installation, Build, and Run}
 
-\subsection{Step 1: Docker Environment Setup}
-The container environment was initialized on a personal workstation running Windows 11 with the WSL2 Ubuntu backend. The Docker daemon was started and verified using:
+In strict compliance with the assignment specification, all deployment steps were conducted on a personal workstation rather than pre-allocated institutional hardware.
+
+\subsection{Step 1: Installation \& Host Environment Setup (Install)}
+Docker Desktop was installed on a personal Windows 11 host with the Windows Subsystem for Linux (WSL2 Ubuntu 22.04 LTS) backend integration enabled. The installation provides both the Docker Engine daemon and the Compose v2 CLI plugin. Operational readiness was confirmed via:
 \begin{lstlisting}[language=bash]
 docker --version
 docker compose version
@@ -383,8 +385,8 @@ docker compose version
     \label{fig:docker_desktop}
 \end{figure}
 
-\subsection{Step 2: Single-Command Image Build \& Orchestration}
-Both images were built and started in detached mode using a single invocation of Docker Compose:
+\subsection{Step 2: Multi-Service Image Compilation (Build)}
+Both container images (\texttt{proximity-api} and \texttt{proximity-test-client}) were built from their respective Dockerfiles and launched simultaneously in detached mode using a single declarative command:
 \begin{lstlisting}[language=bash]
 docker compose up --build -d
 \end{lstlisting}
@@ -392,12 +394,15 @@ docker compose up --build -d
 \begin{figure}[!htb]
     \centering
     \includegraphics[width=0.85\linewidth]{docker_compose_build.png}
-    \caption{Console output of \texttt{docker compose up --build -d} showing layer caching and container creation.}
+    \caption{Console output of \texttt{docker compose up --build -d} showing layer caching, image building, and network creation.}
     \label{fig:docker_compose_build}
 \end{figure}
 
-\subsection{Step 3: Service Status \& Health Verification}
-We confirmed container status and health states with:
+\subsection{Step 3: Service Execution \& Runtime Verification (Run)}
+Following the build step, container execution states, port forwarding, and image footprints were verified using the following inspection routines:
+
+\subsubsection{3.1. Container Lifecycle \& Health Status}
+Service status was checked with:
 \begin{lstlisting}[language=bash]
 docker compose ps -a
 \end{lstlisting}
@@ -411,8 +416,8 @@ docker compose ps -a
 
 As shown in Figure~\ref{fig:docker_compose_ps}, \texttt{proximity\_search\_api} reached the \textbf{\texttt{Up (healthy)}} state and forwarded port \texttt{5213}, while \texttt{proximity\_test\_client} finished its verification suite and exited with status \textbf{\texttt{Exited (0)}}.
 
-\subsection{Step 4: Image Storage Inspection}
-The built container images and their layer footprints were inspected using:
+\subsubsection{3.2. Built Image Repository Inspection}
+Local image artifacts and their layer footprints were confirmed using:
 \begin{lstlisting}[language=bash]
 docker images
 \end{lstlisting}
@@ -424,8 +429,8 @@ docker images
     \label{fig:docker_images}
 \end{figure}
 
-\subsection{Step 5: Container Inspection}
-Low-level networking and volume bind mount configurations were verified via:
+\subsubsection{3.3. Low-Level Container Configuration Inspection}
+Runtime mounts and network bindings were inspected via:
 \begin{lstlisting}[language=bash]
 docker inspect proximity_search_api
 \end{lstlisting}
@@ -501,7 +506,7 @@ During the containerization and testing lifecycle, several non-trivial engineeri
 \begin{tcolorbox}[colback=white, colframe=primarycolor!85, boxrule=0.7pt,
                   title={\bfseries Error 1: Coordinate Axis Alignment in Graph Edge Ingestion}, fonttitle=\small]
 \textbf{Problem}: When executing the automated test suite against the API container, all 20 test cases failed with positional mismatches (\texttt{Exact match: 0, Differences: 20}), as shown in Figure~\ref{fig:docker_error_diff}.\\
-\textbf{Cause}: In \texttt{link.txt}, four-column coordinate lines were initially interpreted as \texttt{(lon\_a, lat\_a, lon\_b, lat\_b)} due to a misleading comment, whereas \texttt{locations.csv} and \texttt{test\_api.py} parsed records as \texttt{(lat, lon)}. Because both coordinates span normalized $[0, 1]$, every edge matched a coordinate, but the adjacency matrix was diagonally transposed. Over 15,112 matrix entries were incorrectly mapped.\\
+\textbf{Cause}: In \texttt{link.txt}, four-column coordinate lines were initially interpreted as \texttt{(lon\_a, lat\_a, lon\_b, lat\_b)} due to a misleading comment, whereas \texttt{locations.csv} and \texttt{test\_api.py} parsed records as \texttt{(lat, lon)}. Because both coordinates span normalized $[0, 1]$, every linkage record matched spatial grid points, but the adjacency matrix was diagonally transposed along the axis coordinates, reversing the edge directions across all 14,800 linkages.\\
 \textbf{Fix}: Updated \texttt{COORD\_ORDER = "lat\_lon"} in \texttt{graph\_builder.py} and \texttt{data\_loader.py}. Additionally, modified \texttt{test\_api.py} to raise \texttt{sys.exit(1)} upon any test discrepancy rather than silently exiting with code \texttt{0}.\\
 \textbf{Verification}: Rebuilt containers with \texttt{docker compose up --build -d}. As verified in Figure~\ref{fig:tail_50}, the test suite achieved 100\% pass rate (\texttt{Exact match: 20, Differences: 0}) and container exited with code \texttt{0}.
 \end{tcolorbox}
@@ -526,18 +531,18 @@ During the containerization and testing lifecycle, several non-trivial engineeri
 \begin{tcolorbox}[colback=white, colframe=primarycolor!85, boxrule=0.7pt,
                   title={\bfseries Error 3: Multi-Container Startup Race Condition}, fonttitle=\small]
 \textbf{Problem}: Upon running \texttt{docker compose up}, the \texttt{proximity-test-client} container crashed prematurely with \texttt{urllib.error.URLError: <urlopen error [Errno 111] Connection refused>}.\\
-\textbf{Cause}: Docker Compose started both containers concurrently. Because \texttt{proximity-api} requires approximately 4 seconds to parse 14,800 graph edges and compute its spatial $k$-d tree, the test client attempted to query the API before the ASGI listener was online.\\
+\textbf{Cause}: Docker Compose started both containers concurrently. Because \texttt{proximity-api} must parse 14,800 linkage edges and construct its spatial $k$-d tree during startup before the ASGI server begins listening, the test client attempted to query the API prematurely.\\
 \textbf{Fix}: Configured an active Docker \texttt{healthcheck} on \texttt{proximity-api} polling \texttt{/docs} with \texttt{interval: 10s, timeout: 5s, retries: 3, start\_period: 5s}, and declared \texttt{depends\_on: \{ proximity-api: \{ condition: service\_healthy \} \}} on \texttt{proximity-test-client}.\\
 \textbf{Verification}: Confirmed that Compose held the test client in pending state until \texttt{proximity-api} logged \texttt{(healthy)}, after which tests executed successfully without a single connection drop.
 \end{tcolorbox}
 
 % Error 4
 \begin{tcolorbox}[colback=white, colframe=primarycolor!85, boxrule=0.7pt,
-                  title={\bfseries Error 4: Excessive Build Context Overhead and Image Bloat}, fonttitle=\small]
-\textbf{Problem}: Initial Docker builds took over 90 seconds to transfer build context, producing images exceeding 1.2\,GB.\\
-\textbf{Cause}: The Docker build daemon was recursively copying local Git history (\texttt{.git/}), Python bytecode caches (\texttt{\_\_pycache\_\_}), and experimental scratch files into the container context. Furthermore, \texttt{pip} was retaining wheel cache files.\\
-\textbf{Fix}: Added a comprehensive \texttt{.dockerignore} file to filter out \texttt{.git}, \texttt{*.pyc}, \texttt{\_\_pycache\_\_}, and documentation artifacts. Added \texttt{--no-cache-dir} to all \texttt{pip install} commands.\\
-\textbf{Verification}: Context transfer time dropped to under 1 second, and the final production image size was reduced to 340\,MB.
+                  title={\bfseries Error 4: Excessive Build Context Overhead and Uncached Artifacts}, fonttitle=\small]
+\textbf{Problem}: Local development artifacts and bytecode directories were transferred as build context to the Docker daemon, creating unnecessary build overhead and layer bloat.\\
+\textbf{Cause}: Without an explicit exclusion file, the Docker build context included Git history (\texttt{.git/}), Python bytecode caches (\texttt{\_\_pycache\_\_}), and temporary scratch files. Additionally, standard \texttt{pip} invocations retained local cache archives.\\
+\textbf{Fix}: Added a comprehensive \texttt{.dockerignore} file excluding \texttt{.git}, \texttt{*.pyc}, \texttt{\_\_pycache\_\_}, and documentation artifacts. Appended \texttt{--no-cache-dir} to all \texttt{pip install} commands.\\
+\textbf{Verification}: Verified with \texttt{docker images} that image disk footprint remained compact ($\sim 146$\,MB compressed content size) and build context transferred cleanly in sub-second time.
 \end{tcolorbox}
 
 % =========================================================
@@ -546,41 +551,34 @@ During the containerization and testing lifecycle, several non-trivial engineeri
 \section{Docker Commands Used \& Reference Table}
 
 \subsection{Categorized Command Reference}
-Table~\ref{tab:commands_reference} provides a functional breakdown of all Docker commands utilized throughout the assignment lifecycle.
+Table~\ref{tab:commands_reference} provides a functional breakdown of the exact Docker commands utilized throughout the assignment lifecycle.
 
 \begin{table}[H]
 \centering
 \small
-\caption{Comprehensive Reference of Utilized Docker Commands Grouped by Function}
+\caption{Reference of Utilized Docker Commands Grouped by Lifecycle Category}
 \label{tab:commands_reference}
 \begin{tabular}{@{}llp{8.5cm}@{}}
 \toprule
 \textbf{Category} & \textbf{Command Syntax} & \textbf{Purpose / Functional Description} \\ \midrule
-\textbf{Environment} & \texttt{docker --version} & Verifies Docker Engine client and daemon installation. \\
+\textbf{Installation / Setup} & \texttt{docker --version} & Verifies Docker Engine client and daemon installation. \\
  & \texttt{docker compose version} & Checks Docker Compose v2 plugin availability. \\ \midrule
-\textbf{Build \& Run} & \texttt{docker compose up --build -d} & Builds all service images and launches containers in detached mode. \\
- & \texttt{docker build -t proximity-api .} & Manually builds an individual service image from \texttt{Dockerfile}. \\
- & \texttt{docker run -d -p 5213:5213 <img\>} & Manually instantiates an isolated container with port forwarding. \\ \midrule
-\textbf{Status \& Health} & \texttt{docker compose ps -a} & Displays lifecycle status, port bindings, and health of managed services. \\
- & \texttt{docker ps -a} & Lists all active and terminated containers across the Docker daemon. \\
- & \texttt{docker images} & Displays local image repository tags, image IDs, and disk footprints. \\ \midrule
-\textbf{Logging} & \texttt{docker compose logs -f} & Streams real-time interleaved console logs from all running services. \\
- & \texttt{docker compose logs --tail 50 <svc\>} & Fetches the last 50 log lines from a specific service container. \\
- & \texttt{docker logs <container\_id>} & Inspects stdout/stderr logs of an individual container instance. \\ \midrule
-\textbf{Inspection} & \texttt{docker inspect <container>} & Outputs low-level JSON details on mounts, IP addresses, and health history. \\
- & \texttt{docker exec -it <container> sh} & Spawns an interactive shell inside a running container for live debugging. \\ \midrule
-\textbf{Verification} & \texttt{curl -X GET "http://localhost:5213/..."} & Dispatches HTTP search requests from host terminal to the API. \\ \midrule
-\textbf{Teardown} & \texttt{docker compose down} & Gracefully stops containers and removes networks. \\
- & \texttt{docker compose down -v} & Tears down containers, networks, and removes associated named volumes. \\
- & \texttt{docker system prune -f} & Cleans up orphaned containers, dangling images, and build caches. \\ \bottomrule
+\textbf{Build \& Run} & \texttt{docker compose up --build -d} & Builds all service images and launches containers in detached mode. \\ \midrule
+\textbf{Status \& Lifecycle} & \texttt{docker compose ps -a} & Displays status, health state, and port forwarding for all services. \\
+ & \texttt{docker images} & Inspects generated images, repository tags, and disk footprints. \\ \midrule
+\textbf{Log Inspection} & \texttt{docker compose logs --tail 50 <svc\>} & Fetches the last 50 log lines from the test client to verify test results. \\
+ & \texttt{docker logs <container\_id>} & Inspects console stdout/stderr logs of the backend API container. \\ \midrule
+\textbf{Container Inspection} & \texttt{docker inspect <container>} & Outputs low-level JSON details on mounts, IP addresses, and health history. \\ \midrule
+\textbf{API Verification} & \texttt{curl -X GET "http://localhost:5213/..."} & Dispatches live HTTP search requests from host terminal to the API. \\ \midrule
+\textbf{Stack Teardown} & \texttt{docker compose down} & Gracefully stops containers and removes the custom bridge network. \\ \bottomrule
 \end{tabular}
 \end{table}
 
 \subsection{Architectural Comparison: Docker Build/Run vs. Docker Compose}
 It is critical to distinguish between standalone Docker CLI commands and declarative Compose orchestration:
 \begin{itemize}[itemsep=2pt, topsep=2pt]
-    \item \textbf{\texttt{docker build} \& \texttt{docker run}}: Operate imperatively on \textit{single} container instances. To run a multi-service architecture using standalone commands, an operator must manually create a bridge network (\texttt{docker network create}), manually configure DNS aliases, start each container with lengthy flag lists (\texttt{-p}, \texttt{-v}, \texttt{--net}, \texttt{-e}), and manually time startups. This process is error-prone and non-reproducible across different host machines.
-    \item \textbf{\texttt{docker compose}}: Operates declaratively on \textit{multi-container systems}. It unifies services, networks, volumes, environment variables, healthchecks, and startup dependencies into a single version-controlled YAML manifest (\texttt{docker-compose.yml}). The complete stack—from image compilation to healthcheck-gated execution—is launched with one reproducible command (\texttt{docker compose up --build -d}).
+    \item \textbf{\texttt{docker build} \& \texttt{docker run}}: Operate imperatively on \textit{individual} container instances. To run a multi-service architecture manually, an operator must repeatedly issue low-level CLI commands with port mappings, volume bindings, and network flags, and manually manage startup timings. This process is error-prone and non-reproducible across different host environments.
+    \item \textbf{\texttt{docker compose}}: Operates declaratively on the \textit{entire multi-container system}. It codifies services, networks, volumes, environment variables, healthchecks, and startup dependencies into a single version-controlled YAML manifest (\texttt{docker-compose.yml}). The complete stack—from image compilation to healthcheck-gated execution—is launched with one reproducible command (\texttt{docker compose up --build -d}).
 \end{itemize}
 
 % =========================================================
@@ -595,11 +593,11 @@ Through this laboratory assignment, we gained practical mastery of production-gr
     \item \textbf{Layer Caching Strategies}: Mastered the ordering of Dockerfile instructions—copying \texttt{requirements.txt} before source files to ensure heavy dependencies are cached, slashing rebuild cycles from minutes to seconds.
     \item \textbf{Multi-Service Orchestration \& Service Discovery}: Implemented internal container communication via user-defined bridge DNS, avoiding hardcoded network IP addresses.
     \item \textbf{Lifecycle Synchronization}: Replaced arbitrary sleep scripts with active Docker healthchecks and \texttt{condition: service\_healthy} dependencies to eliminate distributed race conditions.
-    \item \textbf{Data Integrity via Read-Only Volumes}: Utilized read-only bind mounts to keep images compact and prevent accidental dataset alteration.
+    \item \textbf{Data Integrity via Read-Only Volumes}: Utilized read-only bind mounts to allow live dataset synchronization while preventing accidental file modification.
 \end{enumerate}
 
 \subsection{Conclusion}
-The Proximity Search API and its automated evaluation suite were successfully containerized into an optimized, robust multi-service architecture. The complete stack launches reliably with a single command (\texttt{docker compose up --build -d}), precomputes spatial graphs in under 4 seconds, exhibits sub-2ms query response times, passes all healthchecks, and achieves 100\% test agreement (\texttt{Exact match: 20, Differences: 0}).
+The Proximity Search API and its automated evaluation suite were successfully containerized into an optimized, robust multi-service architecture. The complete stack launches reliably with a single command (\texttt{docker compose up --build -d}), precomputes spatial graphs during initialization, delivers sub-second query response times, passes all healthchecks, and achieves 100\% test agreement (\texttt{Exact match: 20, Differences: 0}).
 
 % =========================================================
 % AI USAGE DECLARATION
