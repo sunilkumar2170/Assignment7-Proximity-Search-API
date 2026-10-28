@@ -174,18 +174,31 @@ docker compose version
 \subsection{Step 2: Configuration Files Creation}
 We created \texttt{Dockerfile}, \texttt{Dockerfile.test}, \texttt{.dockerignore}, and \texttt{docker-compose.yml} in the project root directory.
 
-\subsection{Step 3: Single-Command Build and Run}
+\subsection{Step 3: Single-Command Build and Image Verification}
 The entire stack was built and launched using one unified command:
 \begin{lstlisting}[language=bash]
 docker compose up --build -d
 \end{lstlisting}
 This command downloads the base image, installs wheels into container layers, mounts volumes, configures the network, and starts both services in detached mode.
 
-\subsection{Step 4: Status and Log Verification}
-Container health and live service execution were monitored via:
+We then verified that both application and test-client container images were successfully constructed and registered in the local Docker image store using \texttt{docker images}:
+\begin{lstlisting}[language=bash]
+docker images
+\end{lstlisting}
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=0.98\linewidth]{docker_images.png}
+    \caption{Terminal output of \texttt{docker images} confirming creation and tagging of \texttt{assignment-7-proximity-api} and \texttt{assignment-7-proximity-test-client} with active container usage and layer caching.}
+    \label{fig:docker_images}
+\end{figure}
+
+\subsection{Step 4: Status, Inspection, and Log Verification}
+Container health, volume mounts, network bindings, and live service execution were monitored and deeply inspected via:
 \begin{lstlisting}[language=bash]
 cd Downloads/assignment-7
 docker compose ps
+docker inspect proximity_search_api
 docker compose logs --tail 50
 \end{lstlisting}
 
@@ -198,9 +211,21 @@ docker compose logs --tail 50
 
 \begin{figure}[!htb]
     \centering
-    \includegraphics[width=0.85\linewidth]{tail_50.png}
-    \caption{Terminal console output from \texttt{docker compose logs --tail 50} displaying both \texttt{proximity\_search\_api} request routing and automated \texttt{proximity\_test\_client} verification queries.}
-    \label{fig:tail_logs}
+    \begin{subfigure}[t]{0.48\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{docker_inspect.png}
+        \caption{\texttt{docker inspect proximity\_search\_api} validating container health status, read-only volume mounts (\texttt{link.txt:ro}, \texttt{data:ro}), bridge network, and port mapping (\texttt{5213/tcp}).}
+        \label{fig:docker_inspect}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[t]{0.48\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{tail_50.png}
+        \caption{\texttt{docker compose logs --tail 50} console logs showing live request processing and test suite execution.}
+        \label{fig:tail_logs}
+    \end{subfigure}
+    \caption{Runtime container inspection and service log verification.}
+    \label{fig:inspect_and_logs}
 \end{figure}
 
 \subsection{Step 5: Querying the Containerized Endpoint}
@@ -267,8 +292,10 @@ docker compose down
 \toprule
 \textbf{Command} & \textbf{Scope} & \textbf{Purpose / Functional Description} \\ \midrule
 \texttt{docker build -t <tag> .} & Engine & Builds a Docker image from a local \texttt{Dockerfile}. \\
+\texttt{docker images} & Engine & Lists all locally stored Docker images with repository tags and sizes. \\
 \texttt{docker run -p 5213:5213 <img\>} & Engine & Instantiates and runs a container with port mapping. \\
 \texttt{docker ps -a} & Engine & Lists all active and stopped containers. \\
+\texttt{docker inspect <container>} & Engine & Outputs low-level JSON details of container state, mounts, and network. \\
 \texttt{docker logs <container>} & Engine & Fetches stdout/stderr console logs of a container. \\
 \texttt{docker exec -it <id> sh} & Engine & Opens an interactive shell inside a running container. \\
 \texttt{docker stop <id>} & Engine & Gracefully sends \texttt{SIGTERM} to stop a container. \\
