@@ -182,11 +182,11 @@ docker compose up --build -d
 This command downloads the base image, installs wheels into container layers, mounts volumes, configures the network, and starts both services in detached mode.
 
 \subsection{Step 4: Status and Log Verification}
-Container health was monitored via:
+Container health and live service execution were monitored via:
 \begin{lstlisting}[language=bash]
 cd Downloads/assignment-7
 docker compose ps
-docker compose logs -f proximity-api
+docker compose logs --tail 50
 \end{lstlisting}
 
 \begin{figure}[!htb]
@@ -194,6 +194,13 @@ docker compose logs -f proximity-api
     \includegraphics[width=0.95\linewidth]{docker_desktop.png}
     \caption{Docker Desktop dashboard showing running \texttt{proximity-api} service on port \texttt{5213:5213}, completed test client execution, and live HTTP 200 healthcheck logs.}
     \label{fig:docker_desktop}
+\end{figure}
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=0.85\linewidth]{tail_50.png}
+    \caption{Terminal console output from \texttt{docker compose logs --tail 50} displaying both \texttt{proximity\_search\_api} request routing and automated \texttt{proximity\_test\_client} verification queries.}
+    \label{fig:tail_logs}
 \end{figure}
 
 \subsection{Step 5: Querying the Containerized Endpoint}
